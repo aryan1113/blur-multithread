@@ -26,19 +26,53 @@ import sys
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Optional
+
+from tqdm import tqdm
 
 def main():
-    video_path = Path('Tuesday.mp4')
+    video_path = Path('../Tuesday.mp4')
     final_output_path = Path('blurred_output.mp4')
-    intermediate_path = final_output_path.with_name(
+    sample_frames = 500
+
+    sample_video_path = final_output_path.with_name(
+        f"{final_output_path.stem}_sample_video{final_output_path.suffix}"
+    )
+    sample_final_path = final_output_path.with_name(
+        f"{final_output_path.stem}_sample{final_output_path.suffix}"
+    )
+    full_video_path = final_output_path.with_name(
         f"{final_output_path.stem}_video_only{final_output_path.suffix}"
     )
 
     k_size = get_blur_strength(str(video_path))
     print(f"Selected Blur Kernel Size: {k_size}")
 
-    process_video(str(video_path), str(intermediate_path), k_size)
-    mux_audio(str(video_path), str(intermediate_path), str(final_output_path))
+    print(f"Creating sample ({sample_frames} frames) ...")
+    process_video(
+        str(video_path),
+        str(sample_video_path),
+        k_size,
+        max_frames=sample_frames,
+        description="Sample",
+    )
+    mux_audio(str(video_path), str(sample_video_path), str(sample_final_path))
+    print(f"Sample saved to {sample_final_path}")
+
+    response = input("Type YES to process the entire video: ").strip().upper()
+    if response != "YES":
+        print("Aborted full processing.")
+        return
+
+    process_video(
+        str(video_path),
+        str(full_video_path),
+        k_size,
+        max_frames=None,
+        description="Full Video",
+    )
+    mux_audio(str(video_path), str(full_video_path), str(final_output_path))
+    print(f"Full output saved to {final_output_path}")
 
 def get_blur_strength(path):
     cap = cv2.VideoCapture(path)
@@ -111,60 +145,47 @@ def get_blur_strength(path):
 #     out.release()
 #     print("Done.")
 
-import threading
-from queue import Queue
-
-def process_video(input_path, output_path, k_size):
+def process_video(
+    input_path: str,
+    output_path: str,
+    k_size: int,
+    max_frames: Optional[int],
+    description: str,
+) -> None:
     cap = cv2.VideoCapture(input_path)
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS)
-    
-    # Queue size 1024 frames (~3GB RAM for 720p)
-    read_queue = Queue(maxsize=1024)
-    write_queue = Queue(maxsize=1024)
-    
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    if fps == 0 or not cap.isOpened():
+        cap.release()
+        raise RuntimeError("Unable to read video metadata.")
+
+    frames_to_process = min(total_frames, max_frames) if max_frames else total_frames
+
     out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
     cv2.ocl.setUseOpenCL(True)
 
-    def reader():
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                read_queue.put(None)
-                break
-            read_queue.put(frame)
-    
-    def writer():
-        while True:
-            frame = write_queue.get()
-            if frame is None:
-                break
-            out.write(frame)
-            write_queue.task_done()
+    pbar = tqdm(total=frames_to_process, desc=description, unit="frame")
+    processed = 0
 
-    t_read = threading.Thread(target=reader)
-    t_write = threading.Thread(target=writer)
-    t_read.start()
-    t_write.start()
-    
-    print("Optimized processing started...")
-    
-    while True:
-        frame = read_queue.get()
-        if frame is None:
-            write_queue.put(None)
+    while processed < frames_to_process:
+        ret, frame = cap.read()
+        if not ret:
             break
-        
+
         umat = cv2.UMat(frame)
         blurred = cv2.blur(umat, (k_size, k_size))
-        write_queue.put(blurred.get())
+        out.write(blurred.get())
 
-    t_read.join()
-    t_write.join()
+        processed += 1
+        pbar.update(1)
+
+    pbar.close()
     cap.release()
     out.release()
-    print("Done.")
+    print(f"{description} complete ({processed} frames).")
 
 
 def mux_audio(source_video, processed_video, output_video):
