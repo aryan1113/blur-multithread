@@ -72,7 +72,7 @@ def main() -> None:
     config = ProcessingConfig(
         source_video=Path(cfr_path),
         output_video=Path("results/blurred_output.mp4"),
-        sample_frames=5,
+        sample_frames=500,
     )
     VideoBlurPipeline(config).run(skip_sample=args.skip_sample)
 
