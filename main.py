@@ -23,13 +23,22 @@
 import cv2
 import random
 import sys
+import shutil
+import subprocess
+from pathlib import Path
 
 def main():
-    video_path = 'Tuesday.mp4'
-    output_path = 'blurred_output.mp4'
-    k_size = get_blur_strength(video_path)
+    video_path = Path('Tuesday.mp4')
+    final_output_path = Path('blurred_output.mp4')
+    intermediate_path = final_output_path.with_name(
+        f"{final_output_path.stem}_video_only{final_output_path.suffix}"
+    )
+
+    k_size = get_blur_strength(str(video_path))
     print(f"Selected Blur Kernel Size: {k_size}")
-    process_video(video_path, output_path, k_size)
+
+    process_video(str(video_path), str(intermediate_path), k_size)
+    mux_audio(str(video_path), str(intermediate_path), str(final_output_path))
 
 def get_blur_strength(path):
     cap = cv2.VideoCapture(path)
@@ -102,7 +111,6 @@ def get_blur_strength(path):
 #     out.release()
 #     print("Done.")
 
-import cv2
 import threading
 from queue import Queue
 
@@ -157,6 +165,47 @@ def process_video(input_path, output_path, k_size):
     cap.release()
     out.release()
     print("Done.")
+
+
+def mux_audio(source_video, processed_video, output_video):
+    """
+    OpenCV drops audio tracks. Use ffmpeg (if available) to remux the
+    original audio into the blurred video. If ffmpeg is missing, fall back
+    to returning the processed video without audio but notify the user.
+    """
+    processed_path = Path(processed_video)
+    output_path = Path(output_video)
+
+    if not processed_path.exists():
+        raise FileNotFoundError(f"Processed video not found at {processed_path}")
+
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        print("Warning: ffmpeg not found in PATH. Output will not contain audio.")
+        processed_path.replace(output_path)
+        return
+
+    command = [
+        ffmpeg_path,
+        "-y",
+        "-i", str(processed_path),
+        "-i", source_video,
+        "-map", "0:v:0",
+        "-map", "1:a?",
+        "-c:v", "copy",
+        "-c:a", "copy",
+        str(output_path),
+    ]
+
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        processed_path.replace(output_path)
+        raise RuntimeError(
+            "ffmpeg failed to mux audio:\n"
+            f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        )
+
+    processed_path.unlink(missing_ok=True)
 
 if __name__ == "__main__":
     main()
