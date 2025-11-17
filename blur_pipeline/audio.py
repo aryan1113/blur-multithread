@@ -11,6 +11,7 @@ def mux_audio(
     processed_video: str,
     output_video: str,
     duration: Optional[float] = None,
+    audio_offset: float = 0.0,
 ) -> None:
     processed_path = Path(processed_video)
     output_path = Path(output_video)
@@ -30,6 +31,7 @@ def mux_audio(
         output_path=output_path,
         duration=duration,
         ffmpeg_path=ffmpeg_path,
+        audio_offset=audio_offset,
     )
 
     result = subprocess.run(command, capture_output=True, text=True)
@@ -50,10 +52,12 @@ def build_mux_command(
     output_path: Path,
     duration: Optional[float],
     ffmpeg_path: str,
+    audio_offset: float = 0.0,
 ) -> List[str]:
-    audio_input: Sequence[str] = ["-i", source_video]
+    # Always use -ss for audio to align/seek with video sample
+    audio_input: Sequence[str] = ["-ss", f"{audio_offset:.6f}", "-i", source_video]
     if duration is not None:
-        audio_input = ["-ss", "0", "-t", f"{duration:.6f}", "-i", source_video]
+        audio_input += ["-t", f"{duration:.6f}"]
 
     return [
         ffmpeg_path,

@@ -60,6 +60,7 @@ def process_video(
     k_size: int,
     max_frames: Optional[int],
     description: str,
+    start_frame: int = 0,
 ) -> ProcessedVideo:
     cap = cv2.VideoCapture(input_path)
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -71,7 +72,13 @@ def process_video(
         cap.release()
         raise RuntimeError("Unable to read video metadata.")
 
-    frames_to_process = min(total_frames, max_frames) if max_frames else total_frames
+
+    # Seek to start_frame
+    if start_frame > 0:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+    frames_left = total_frames - start_frame
+    frames_to_process = min(frames_left, max_frames) if max_frames else frames_left
 
     out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
     cv2.ocl.setUseOpenCL(True)
