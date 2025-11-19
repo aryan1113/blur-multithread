@@ -39,42 +39,53 @@ def main() -> None:
     parser.add_argument("--skip-sample", action="store_true", help="Skip creating the sample video")
     parser.add_argument("--debug", action="store_true", help="Print video metadata for debugging")
     parser.add_argument("--cfr-fps", type=float, default=30, help="Convert input video to CFR at this FPS (default: 30)")
+    parser.add_argument("--no-cfr", action="store_true", help="Skip CFR conversion and use original video for blurring and audio passthrough")
     args = parser.parse_args()
 
-    source_path = "../Tuesday.mp4"
-    cfr_path = "../Tuesday_cfr.mp4"
+    source_path = "../Tuesday_mini.mp4"
+    cfr_path = "../Tuesday_mini_cfr.mp4"
 
-    # Convert to CFR if not already
     import subprocess
     import os
-    if not os.path.exists(cfr_path):
-        print(f"Converting {source_path} to CFR at {args.cfr_fps} FPS ...")
-        ffmpeg_cmd = [
-            "ffmpeg", "-y", "-i", source_path,
-            "-vsync", "cfr",
-            "-r", str(args.cfr_fps),
-            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-            "-c:a", "copy",
-            cfr_path
-        ]
-        result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            print("FFmpeg CFR conversion failed:")
-            print(result.stderr)
-            exit(1)
-        print(f"CFR video created: {cfr_path}")
-    else:
-        print(f"CFR video already exists: {cfr_path}")
+    use_cfr = not args.no_cfr
+    selected_video = cfr_path if use_cfr else source_path
+
+    if use_cfr:
+        # Convert to CFR if not already
+        if not os.path.exists(cfr_path):
+            print(f"Converting {source_path} to CFR at {args.cfr_fps} FPS ...")
+            ffmpeg_cmd = [
+                "ffmpeg", "-y", "-i", source_path,
+                "-vsync", "cfr",
+                "-r", str(args.cfr_fps),
+                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                "-c:a", "copy",
+                cfr_path
+            ]
+            result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                print("FFmpeg CFR conversion failed:")
+                print(result.stderr)
+                exit(1)
+            print(f"CFR video created: {cfr_path}")
+        else:
+            print(f"CFR video already exists: {cfr_path}")
 
     if args.debug:
-        print_video_metadata(cfr_path)
+        print_video_metadata(selected_video)
 
+    import time
+    t0 = time.perf_counter()
     config = ProcessingConfig(
-        source_video=Path(cfr_path),
+        source_video=Path(selected_video),
         output_video=Path("results/blurred_output.mp4"),
-        sample_frames=500,
+        sample_frames=5,
     )
+    t1 = time.perf_counter()
+    print(f"[LATENCY] Config initialization: {t1-t0:.2f}s")
     VideoBlurPipeline(config).run(skip_sample=args.skip_sample)
+    t2 = time.perf_counter()
+    print(f"[LATENCY] Pipeline run: {t2-t1:.2f}s | Total: {t2-t0:.2f}s")
 
 if __name__ == "__main__":
     main()

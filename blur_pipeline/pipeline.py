@@ -127,6 +127,8 @@ class VideoBlurPipeline:
         )
 
     def _render_full(self, k_size: int) -> None:
+        import time
+        t0 = time.perf_counter()
         full_video = process_video(
             str(self.config.source_video),
             str(self.paths.full_video_only),
@@ -134,12 +136,16 @@ class VideoBlurPipeline:
             max_frames=None,
             description="Full Video",
         )
+        t1 = time.perf_counter()
+        print(f"[LATENCY] Video blur processing: {t1-t0:.2f}s")
         mux_audio(
             str(self.config.source_video),
             str(full_video.path),
             str(self.config.output_video),
             duration=full_video.duration,
         )
+        t2 = time.perf_counter()
+        print(f"[LATENCY] Audio muxing: {t2-t1:.2f}s | Total: {t2-t0:.2f}s")
 
     @staticmethod
     def _should_process_full() -> bool:
